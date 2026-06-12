@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sovereign BOM Sourcing Optimizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --panel-bg: rgba(22, 26, 41, 0.65);
+            --border-color: rgba(255, 255, 255, 0.07);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-purple: #8b5cf6;
+            --accent-blue: #3b82f6;
+            --accent-glow: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --btn-glow: 0 0 20px rgba(139, 92, 246, 0.4);
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 3rem 1.5rem;
+            background-image: 
+                radial-gradient(at 15% 15%, rgba(99, 102, 241, 0.15) 0px, transparent 45%),
+                radial-gradient(at 85% 85%, rgba(168, 85, 247, 0.15) 0px, transparent 45%);
+            background-attachment: fixed;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            animation: fadeInDown 0.8s ease;
+        }
+
+        header h1 {
+            font-size: 3.2rem;
+            font-weight: 800;
+            letter-spacing: -1.5px;
+            background: var(--accent-glow);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.75rem;
+            filter: drop-shadow(0 2px 10px rgba(139, 92, 246, 0.25));
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        /* Uploader styling */
+        .upload-zone {
+            background: var(--panel-bg);
+            border: 2px dashed rgba(139, 92, 246, 0.3);
+            border-radius: 24px;
+            padding: 4rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(16px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            margin-bottom: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--accent-purple);
+            transform: translateY(-4px);
+            box-shadow: 0 15px 40px rgba(139, 92, 246, 0.15);
+        }
+
+        .upload-zone input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+            background: var(--accent-glow);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: inline-block;
+        }
+
+        .upload-zone h3 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-zone p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Results view */
+        .dashboard {
+            display: none;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            animation: fadeInUp 0.8s ease;
+        }
+
+        @media (min-width: 992px) {
+            .dashboard {
+                grid-template-columns: 2.5fr 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 2rem;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            margin-bottom: 2rem;
+        }
+
+        .panel h2 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+        }
+
+        /* Summary Cards */
+        .summary-card {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%);
+            border: 1px solid rgba(139, 92, 246, 0.25);
+            border-radius: 24px;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            position: relative;
+            overflow: hidden;
+            box-shadow: var(--btn-glow);
+        }
+
+        .summary-card h3 {
+            font-size: 1.05rem;
+            color: #a855f7;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .summary-card .price {
+            font-size: 4rem;
+            font-weight: 800;
+            color: #ffffff;
+            margin-bottom: 1.5rem;
+            letter-spacing: -2px;
+        }
+
+        .summary-card .meta-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1.5rem;
+        }
+
+        .summary-card .meta-item span {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .summary-card .meta-item strong {
+            font-size: 1.3rem;
+            color: #ffffff;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 1.2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 1.5px;
+        }
+
+        td {
+            font-size: 1rem;
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .badge.success { background-color: rgba(16, 185, 129, 0.12); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge.danger { background-color: rgba(239, 68, 68, 0.12); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+        .badge.info { background-color: rgba(59, 130, 246, 0.12); color: var(--accent-blue); border: 1px solid rgba(59, 130, 246, 0.3); }
+        .badge.warning { background-color: rgba(245, 158, 11, 0.12); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+
+        .alt-text {
+            color: var(--warning);
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+            display: block;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: none;
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(139, 92, 246, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-purple);
+            animation: spin 1s linear infinite;
+            margin: 3rem auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sovereign BOM Optimizer</h1>
+            <p>High-End Multi-Distributor Purchase Sourcing Platform</p>
+        </header>
+
+        <div class="upload-zone" id="drop-zone">
+            <span class="upload-icon">⚡</span>
+            <h3>Drag & Drop your BOM CSV File</h3>
+            <p>or click to browse your local filesystem</p>
+            <input type="file" id="file-input" accept=".csv">
+        </div>
+
+        <div class="spinner" id="loading-spinner"></div>
+
+        <div class="dashboard" id="dashboard-view">
+            <div class="panel">
+                <h2>Optimized Purchase Distribution Plan (Cheapest Split)</h2>
+                <table id="split-table">
+                    <thead>
+                        <tr>
+                            <th>Part (MPN)</th>
+                            <th>Qty Required</th>
+                            <th>Best Distributor</th>
+                            <th>Unit Price</th>
+                            <th>Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="split-body">
+                        <!-- Filled dynamically -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div>
+                <div class="summary-card">
+                    <h3>Optimal Combined Cost</h3>
+                    <div class="price" id="total-price">&euro; 0.00</div>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span>Parts Cost</span>
+                            <strong id="parts-price">&euro; 0.00</strong>
+                        </div>
+                        <div class="meta-item">
+                            <span>Shipping Costs</span>
+                            <strong id="shipping-price">&euro; 0.00</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Single-Source Options</h2>
+                    <table id="single-table">
+                        <thead>
+                            <tr>
+                                <th>Distributor</th>
+                                <th>Status</th>
+                                <th>Total Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody id="single-body">
+                            <!-- Filled dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const spinner = document.getElementById('loading-spinner');
+        const dashboard = document.getElementById('dashboard-view');
+        
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                uploadBOM(evt.target.result);
+            };
+            reader.readAsText(file);
+        }
+
+        async function uploadBOM(csvContent) {
+            spinner.style.display = 'block';
+            dashboard.style.display = 'none';
+            dropZone.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csv_data: csvContent })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    renderDashboard(data);
+                } else {
+                    alert('Optimization failed: ' + data.error);
+                    dropZone.style.display = 'block';
+                }
+            } catch (err) {
+                alert('Network connection error: ' + err.message);
+                dropZone.style.display = 'block';
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        function renderDashboard(data) {
+            // Render Split Sourcing Table
+            const splitBody = document.getElementById('split-body');
+            splitBody.innerHTML = '';
+            
+            data.split_source.parts.forEach(part => {
+                const tr = document.createElement('tr');
+                const mpnCell = document.createElement('td');
+                mpnCell.innerHTML = `<strong>${part.mpn}</strong>`;
+                
+                if (part.unfulfilled) {
+                    let altStr = `<span class="alt-text">Out of stock! Alternatives:</span>`;
+                    if (part.alternatives && part.alternatives.length > 0) {
+                        part.alternatives.slice(0, 2).forEach(alt => {
+                            altStr += `<span class="alt-text">&bull; ${alt.mpn} (${alt.confidence}% confidence, stock: ${alt.total_stock})</span>`;
+                        });
+                    } else {
+                        altStr += `<span class="alt-text" style="color: var(--danger)">&bull; No compatible alternative found</span>`;
+                    }
+                    mpnCell.innerHTML += altStr;
+                }
+
+                const qtyCell = document.createElement('td');
+                qtyCell.textContent = part.qty;
+
+                const distCell = document.createElement('td');
+                const badgeClass = part.unfulfilled ? 'danger' : 'info';
+                const distName = part.unfulfilled ? 'UNAVAILABLE' : part.distributor.toUpperCase();
+                distCell.innerHTML = `<span class="badge ${badgeClass}">${distName}</span>`;
+
+                const priceCell = document.createElement('td');
+                priceCell.textContent = part.unfulfilled ? '-' : `\u20AC ${part.unit_price.toFixed(3)}`;
+
+                const totalCell = document.createElement('td');
+                totalCell.innerHTML = part.unfulfilled ? '-' : `<strong>\u20AC ${part.total.toFixed(2)}</strong>`;
+
+                tr.appendChild(mpnCell);
+                tr.appendChild(qtyCell);
+                tr.appendChild(distCell);
+                tr.appendChild(priceCell);
+                tr.appendChild(totalCell);
+                splitBody.appendChild(tr);
+            });
+
+            // Update Costs Cards
+            document.getElementById('total-price').textContent = `\u20AC ${data.split_source.total_cost.toFixed(2)}`;
+            document.getElementById('parts-price').textContent = `\u20AC ${data.split_source.items_cost.toFixed(2)}`;
+            document.getElementById('shipping-price').textContent = `\u20AC ${data.split_source.shipping_cost.toFixed(2)}`;
+
+            // Render Single-Source Table
+            const singleBody = document.getElementById('single-body');
+            singleBody.innerHTML = '';
+
+            Object.keys(data.single_source).forEach(dist => {
+                const res = data.single_source[dist];
+                const tr = document.createElement('tr');
+                
+                const nameCell = document.createElement('td');
+                nameCell.innerHTML = `<strong>${dist.toUpperCase()}</strong>`;
+                
+                const statusCell = document.createElement('td');
+                const statusBadge = res.is_feasible ? 'success' : 'danger';
+                const statusText = res.is_feasible ? 'FEASIBLE' : 'UNFEASIBLE';
+                statusCell.innerHTML = `<span class="badge ${statusBadge}">${statusText}</span>`;
+
+                const costCell = document.createElement('td');
+                costCell.innerHTML = res.is_feasible ? `<strong>\u20AC ${res.total_cost.toFixed(2)}</strong>` : '-';
+
+                tr.appendChild(nameCell);
+                tr.appendChild(statusCell);
+                tr.appendChild(costCell);
+                singleBody.appendChild(tr);
+            });
+
+            dashboard.style.display = 'grid';
+        }
+    </script>
+</body>
+</html>
