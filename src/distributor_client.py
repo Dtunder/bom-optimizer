@@ -1,6 +1,7 @@
 import time
 import json
 import random
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -9,6 +10,8 @@ CACHE_FILE = Path(r"C:\Users\user\.gemini\antigravity-ide\scratch\bom_optimizer\
 class DistributorClient:
     def __init__(self, cache_enabled: bool = True):
         self.cache_enabled = cache_enabled
+        # Seed for reproducibility if needed, or at least initialization
+        random.seed(42) 
         self.cache = self._load_cache()
         # Mock database of electronic components with realistic mechatronics parameters
         self._mock_db = {

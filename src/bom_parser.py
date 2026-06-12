@@ -1,5 +1,6 @@
 import csv
 import re
+import os
 from typing import List, Dict, Any
 
 class BOMParser:
@@ -27,15 +28,26 @@ class BOMParser:
 
     def parse_csv(self, filepath: str) -> List[Dict[str, Any]]:
         """Parses a BOM CSV file and returns standardized rows."""
+        if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+            raise ValueError("BOM file is empty or does not exist.")
+
         parsed_items = []
         with open(filepath, mode="r", encoding="utf-8", errors="replace") as f:
             # Handle possible semicolon or comma separation
-            content = f.read(4096)
-            dialect = csv.Sniffer().sniff(content) if content.strip() else csv.excel
+            sample = f.read(4096)
             f.seek(0)
             
+            try:
+                dialect = csv.Sniffer().sniff(sample) if sample.strip() else csv.excel
+            except Exception:
+                dialect = csv.excel
+            
             reader = csv.reader(f, dialect)
-            headers = next(reader, None)
+            try:
+                headers = next(reader, None)
+            except StopIteration:
+                raise ValueError("BOM file is empty or missing headers.")
+                
             if not headers:
                 raise ValueError("BOM file is empty or missing headers.")
             
@@ -52,11 +64,20 @@ class BOMParser:
                     continue
                 
                 try:
-                    mpn = row[header_map["mpn"]].strip()
-                    raw_qty = row[header_map["quantity"]].strip()
-                    # Strip non-numeric characters for quantity
-                    qty_match = re.search(r"\d+", raw_qty)
-                    qty = int(qty_match.group(0)) if qty_match else 1
+                    # Robust index check
+                    mpn_idx = header_map["mpn"]
+                    qty_idx = header_map["quantity"]
+                    
+                    if mpn_idx >= len(row) or qty_idx >= len(row):
+                        continue
+
+                    mpn = row[mpn_idx].strip()
+                    raw_qty = row[qty_idx].strip()
+                    
+                    # Robust quantity extraction: find first number
+                    qty_match = re.search(r"(\d+)", raw_qty)
+                    qty = int(qty_match.group(1)) if qty_match else 1
+                    if qty <= 0: qty = 1
                     
                     description = row[header_map["description"]].strip() if "description" in header_map and len(row) > header_map["description"] else ""
                     footprint = row[header_map["footprint"]].strip() if "footprint" in header_map and len(row) > header_map["footprint"] else ""
@@ -71,8 +92,8 @@ class BOMParser:
                             "manufacturer": manufacturer,
                             "line": line_idx
                         })
-                except Exception as e:
-                    # Skip corrupt rows but log warning conceptually
-                    pass
+                except Exception:
+                    # Skip corrupt rows
+                    continue
 
         return parsed_items

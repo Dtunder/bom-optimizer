@@ -48,7 +48,7 @@ class AlternativeMatcher:
             params["voltage"] = volt_match.group(0)
             
         # Tolerance (e.g. 1%, 5%, 0.1%)
-        tol_match = re.search(r"\b\d+(?:\.\d+)?%\b", desc_up)
+        tol_match = re.search(r"\b\d+(?:\.\d+)?%", desc_up)
         if tol_match:
             params["tolerance"] = tol_match.group(0)
             

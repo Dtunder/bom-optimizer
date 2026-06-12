@@ -14,13 +14,19 @@ class BOMOptimizer:
         """Returns the unit price for a given quantity based on price breaks."""
         if not price_breaks:
             return 0.0
-        # Convert keys to int and sort
-        sorted_breaks = sorted({int(k): v for k, v in price_breaks.items()}.items(), reverse=True)
-        for break_qty, price in sorted_breaks:
-            if qty >= break_qty:
-                return price
-        # Default to the lowest quantity break price if it doesn't match
-        return sorted_breaks[-1][1] if sorted_breaks else 0.0
+        try:
+            # Convert keys to int and sort
+            sorted_breaks = sorted({int(k): v for k, v in price_breaks.items() if float(v) > 0}.items(), reverse=True)
+            if not sorted_breaks:
+                return 0.0
+                
+            for break_qty, price in sorted_breaks:
+                if qty >= break_qty:
+                    return float(price)
+            # Default to the lowest quantity break price if it doesn't match
+            return float(sorted_breaks[-1][1])
+        except (ValueError, TypeError):
+            return 0.0
 
     def optimize_single_source(self, bom_items: List[Dict[str, Any]], part_details: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Calculates total cost for each distributor if they fulfill the entire BOM."""
@@ -33,28 +39,33 @@ class BOMOptimizer:
             unfulfilled_items = []
             
             for item in bom_items:
-                mpn = item["mpn"]
-                target_qty = item["quantity"]
+                mpn = item.get("mpn", "").strip()
+                if not mpn: continue
+                
+                target_qty = max(1, int(item.get("quantity", 1)))
                 details = part_details.get(mpn.upper(), {})
                 dist_data = details.get("distributors", {}).get(dist, {})
                 
                 stock = dist_data.get("stock", 0)
-                moq = dist_data.get("moq", 1)
+                moq = max(1, dist_data.get("moq", 1))
                 price_breaks = dist_data.get("price_breaks", {})
                 
                 order_qty = max(target_qty, moq)
                 
                 if stock >= order_qty and price_breaks:
                     unit_price = self._get_price_for_qty(price_breaks, order_qty)
-                    item_total = unit_price * order_qty
-                    items_cost += item_total
-                    fulfilled_items.append({
-                        "mpn": mpn,
-                        "qty": order_qty,
-                        "unit_price": unit_price,
-                        "total": item_total,
-                        "shipping_days": dist_data.get("shipping_days", 3)
-                    })
+                    if unit_price > 0:
+                        item_total = unit_price * order_qty
+                        items_cost += item_total
+                        fulfilled_items.append({
+                            "mpn": mpn,
+                            "qty": order_qty,
+                            "unit_price": unit_price,
+                            "total": item_total,
+                            "shipping_days": dist_data.get("shipping_days", 3)
+                        })
+                    else:
+                        unfulfilled_items.append({"mpn": mpn, "reason": "Price not available"})
                 else:
                     unfulfilled_items.append({
                         "mpn": mpn,
@@ -98,8 +109,10 @@ class BOMOptimizer:
                 feasible_subset = True
                 
                 for item in bom_items:
-                    mpn = item["mpn"]
-                    target_qty = item["quantity"]
+                    mpn = item.get("mpn", "").strip()
+                    if not mpn: continue
+                    
+                    target_qty = max(1, int(item.get("quantity", 1)))
                     details = part_details.get(mpn.upper(), {})
                     
                     best_dist_in_subset = None
@@ -110,12 +123,14 @@ class BOMOptimizer:
                     for dist in subset:
                         dist_data = details.get("distributors", {}).get(dist, {})
                         stock = dist_data.get("stock", 0)
-                        moq = dist_data.get("moq", 1)
+                        moq = max(1, dist_data.get("moq", 1))
                         price_breaks = dist_data.get("price_breaks", {})
                         
                         order_qty = max(target_qty, moq)
                         if stock >= order_qty and price_breaks:
                             unit_price = self._get_price_for_qty(price_breaks, order_qty)
+                            if unit_price <= 0: continue
+                            
                             total = unit_price * order_qty
                             if total < best_price_in_subset:
                                 best_price_in_subset = total
@@ -138,9 +153,11 @@ class BOMOptimizer:
                         available_anywhere = False
                         for d in distributors:
                             d_data = details.get("distributors", {}).get(d, {})
-                            if d_data.get("stock", 0) >= max(target_qty, d_data.get("moq", 1)) and d_data.get("price_breaks"):
-                                available_anywhere = True
-                                break
+                            d_moq = max(1, d_data.get("moq", 1))
+                            if d_data.get("stock", 0) >= max(target_qty, d_moq) and d_data.get("price_breaks"):
+                                if self._get_price_for_qty(d_data.get("price_breaks"), max(target_qty, d_moq)) > 0:
+                                    available_anywhere = True
+                                    break
                         
                         if available_anywhere:
                             feasible_subset = False
