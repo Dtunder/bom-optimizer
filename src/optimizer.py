@@ -133,8 +133,27 @@ class BOMOptimizer:
                         })
                         distributors_used_cost[best_dist_in_subset] += best_price_in_subset
                     else:
-                        feasible_subset = False
-                        break
+                        # Check if this part is available anywhere in the entire catalog.
+                        # If it is available elsewhere, but not in our subset, this subset is unfeasible.
+                        available_anywhere = False
+                        for d in distributors:
+                            d_data = details.get("distributors", {}).get(d, {})
+                            if d_data.get("stock", 0) >= max(target_qty, d_data.get("moq", 1)) and d_data.get("price_breaks"):
+                                available_anywhere = True
+                                break
+                        
+                        if available_anywhere:
+                            feasible_subset = False
+                            break
+                        else:
+                            current_parts.append({
+                                "mpn": mpn,
+                                "distributor": None,
+                                "qty": target_qty,
+                                "unit_price": 0.0,
+                                "total": 0.0,
+                                "unfulfilled": True
+                            })
                 
                 if feasible_subset:
                     total_items_cost = 0.0
