@@ -270,6 +270,38 @@
             to { transform: rotate(360deg); }
         }
 
+        .chart-container {
+            margin-top: 2rem;
+            text-align: center;
+        }
+        
+        .export-btns {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            justify-content: center;
+        }
+        
+        .export-btn {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            color: #ffffff;
+            padding: 0.6rem 1.2rem;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .export-btn:hover {
+            background: rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+        }
+
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
@@ -333,6 +365,19 @@
                             <strong id="shipping-price">&euro; 0.00</strong>
                         </div>
                     </div>
+                    
+                    <div class="chart-container" id="chart-container">
+                        <!-- SVG Chart will be injected here -->
+                    </div>
+                    
+                    <div class="export-btns" id="export-section" style="display: none;">
+                        <button class="export-btn" onclick="exportCSV('mouser')">
+                            <span>📥</span> MOUSER CSV
+                        </button>
+                        <button class="export-btn" onclick="exportCSV('digikey')">
+                            <span>📥</span> DIGIKEY CSV
+                        </button>
+                    </div>
                 </div>
 
                 <div class="panel">
@@ -381,6 +426,7 @@
         const resetBtn = document.getElementById('reset-btn');
         
         let historyData = {}; // Global store for history items
+        let currentResult = null;
 
         fileInput.addEventListener('change', handleFileSelect);
         resetBtn.addEventListener('click', () => {
@@ -492,6 +538,7 @@
         };
 
         function renderDashboard(data) {
+            currentResult = data;
             dropZone.style.display = 'none';
             historyPanel.style.display = 'none';
             
@@ -502,13 +549,16 @@
             data.split_source.parts.forEach(part => {
                 const tr = document.createElement('tr');
                 const mpnCell = document.createElement('td');
-                mpnCell.innerHTML = `<strong>${part.mpn}</strong>`;
+                const safeMpn = document.createTextNode(part.mpn).textContent;
+                mpnCell.innerHTML = `<strong>${safeMpn}</strong>`;
                 
                 if (part.unfulfilled) {
                     let altStr = `<span class="alt-text">Out of stock! Alternatives:</span>`;
                     if (part.alternatives && part.alternatives.length > 0) {
                         part.alternatives.slice(0, 2).forEach(alt => {
-                            altStr += `<span class="alt-text">&bull; ${alt.mpn} (${alt.confidence}% confidence, stock: ${alt.total_stock})</span>`;
+                            const sMpn = document.createTextNode(alt.mpn).textContent;
+                            const sDesc = document.createTextNode(alt.description).textContent;
+                            altStr += `<span class="alt-text" title="${sDesc}">&bull; ${sMpn} (${alt.confidence}% confidence)</span>`;
                         });
                     } else {
                         altStr += `<span class="alt-text" style="color: var(--danger)">&bull; No compatible alternative found</span>`;
@@ -543,6 +593,9 @@
             document.getElementById('parts-price').textContent = `\u20AC ${data.split_source.items_cost.toFixed(2)}`;
             document.getElementById('shipping-price').textContent = `\u20AC ${data.split_source.shipping_cost.toFixed(2)}`;
 
+            renderChart(data.split_source.distributors);
+            document.getElementById('export-section').style.display = 'flex';
+
             // Render Single-Source Table
             const singleBody = document.getElementById('single-body');
             singleBody.innerHTML = '';
@@ -570,6 +623,85 @@
 
             dashboard.style.display = 'grid';
         }
+
+        function renderChart(distributors) {
+            const container = document.getElementById('chart-container');
+            container.innerHTML = '';
+            
+            const dists = Object.keys(distributors);
+            if (dists.length === 0) return;
+            
+            const total = dists.reduce((sum, d) => sum + distributors[d].total, 0);
+            let currentAngle = 0;
+            const size = 120;
+            const radius = 50;
+            const centerX = 60;
+            const centerY = 60;
+            
+            let svgHtml = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
+            
+            const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+            
+            dists.forEach((d, i) => {
+                const portion = distributors[d].total / total;
+                const angle = portion * 360;
+                
+                // Calculate path
+                const x1 = centerX + radius * Math.cos(Math.PI * (currentAngle - 90) / 180);
+                const y1 = centerY + radius * Math.sin(Math.PI * (currentAngle - 90) / 180);
+                
+                currentAngle += angle;
+                
+                const x2 = centerX + radius * Math.cos(Math.PI * (currentAngle - 90) / 180);
+                const y2 = centerY + radius * Math.sin(Math.PI * (currentAngle - 90) / 180);
+                
+                const largeArcFlag = angle > 180 ? 1 : 0;
+                
+                svgHtml += `<path d="M ${centerX} ${centerY} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z" 
+                                  fill="${colors[i % colors.length]}" stroke="rgba(0,0,0,0.2)" stroke-width="1">
+                                  <title>${d.toUpperCase()}: \u20AC${distributors[d].total.toFixed(2)}</title>
+                            </path>`;
+            });
+            
+            svgHtml += `</svg>`;
+            
+            // Legend
+            let legendHtml = `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; margin-top: 1rem; font-size: 0.75rem;">`;
+            dists.forEach((d, i) => {
+                legendHtml += `<div style="display: flex; align-items: center; gap: 0.3rem;">
+                                  <div style="width: 10px; height: 10px; border-radius: 2px; background: ${colors[i % colors.length]}"></div>
+                                  <span>${d.toUpperCase()}</span>
+                               </div>`;
+            });
+            legendHtml += `</div>`;
+            
+            container.innerHTML = svgHtml + legendHtml;
+        }
+
+        window.exportCSV = (distName) => {
+            if (!currentResult) return;
+            
+            const parts = currentResult.split_source.parts.filter(p => p.distributor === distName);
+            if (parts.length === 0) {
+                alert(`No parts assigned to ${distName}`);
+                return;
+            }
+            
+            let csvContent = "MPN,Quantity\n";
+            parts.forEach(p => {
+                csvContent += `${p.mpn},${p.qty}\n`;
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('hidden', '');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `${distName}_order.csv`);
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        };
     </script>
 </body>
 </html>

@@ -37,7 +37,10 @@ def init_db():
     conn.close()
 
 def save_bom(filename: str, item_count: int) -> int:
-    """Saves a BOM record and returns its ID."""
+    """Saves a BOM record and returns its ID. Parameterized to prevent SQL Injection."""
+    if not isinstance(filename, str) or not isinstance(item_count, int):
+        raise ValueError("Invalid input types for database operation")
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     timestamp = datetime.datetime.now().isoformat()
@@ -52,7 +55,10 @@ def save_bom(filename: str, item_count: int) -> int:
     return bom_id
 
 def save_history(bom_id: int, total_cost: float, result_data: dict):
-    """Saves an optimization result."""
+    """Saves an optimization result. Parameterized to prevent SQL Injection."""
+    if not isinstance(bom_id, int) or not isinstance(total_cost, (float, int)):
+        raise ValueError("Invalid input types for database operation")
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     timestamp = datetime.datetime.now().isoformat()

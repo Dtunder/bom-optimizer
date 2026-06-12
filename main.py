@@ -303,7 +303,7 @@ def main():
     # Parse BOM
     parser_client = BOMParser()
     try:
-        bom_items = parser_client.parse_csv(str(bom_path))
+        bom_items = parser_client.parse(str(bom_path))
     except Exception as e:
         print(f"[ERROR] Parsing CSV failed: {e}")
         return

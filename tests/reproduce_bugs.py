@@ -79,7 +79,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_matcher_greedy_regex(self):
         # Description with multiple values
         params = self.matcher._extract_parameters("RES 10K 50V 1% 0805")
-        self.assertEqual(params["value"], "10K")
+        self.assertEqual(params["raw_value"], "10K")
         self.assertEqual(params["voltage"], 50.0)
         self.assertEqual(params["tolerance"], 1.0)
 

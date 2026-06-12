@@ -45,7 +45,8 @@ class TestBOMOptimizer(unittest.TestCase):
         catalog = {
             "C0805-100NF-50V-10%": {"footprint": "0805", "description": "CAP CER 100NF 50V 10%"},
             "C0805-100NF-25V-5%": {"footprint": "0805", "description": "CAP CER 100NF 25V 5%"},
-            "C0805-100NF-100V-5%": {"footprint": "0805", "description": "CAP CER 100NF 100V 5%"}
+            "C0805-100NF-100V-5%": {"footprint": "0805", "description": "CAP CER 100NF 100V 5%"},
+            "C0805-100NF-EOL": {"footprint": "0805", "description": "CAP CER 100NF 100V 5%", "lifecycle_status": "EOL"}
         }
         
         # Target: 50V, 10%
@@ -57,9 +58,43 @@ class TestBOMOptimizer(unittest.TestCase):
         mpns = [a["mpn"] for a in alts]
         self.assertNotIn("C0805-100NF-25V-5%", mpns)
         
+        # Should NOT include EOL part
+        self.assertNotIn("C0805-100NF-EOL", mpns)
+        
         # Should include 100V 5% (higher voltage, better tolerance)
         self.assertIn("C0805-100NF-100V-5%", mpns)
         self.assertIn("C0805-100NF-50V-10%", mpns)
+
+    def test_unit_normalization(self):
+        # Resistance
+        self.assertEqual(self.matcher._normalize_value("10K", "resistor"), 10000.0)
+        self.assertEqual(self.matcher._normalize_value("1M", "resistor"), 1000000.0)
+        self.assertEqual(self.matcher._normalize_value("4.7K", "resistor"), 4700.0)
+        self.assertEqual(self.matcher._normalize_value("4K7", "resistor"), 4700.0)
+        self.assertEqual(self.matcher._normalize_value("100R", "resistor"), 100.0)
+        self.assertEqual(self.matcher._normalize_value("10 Ohm", "resistor"), 10.0)
+        
+        # Capacitance
+        self.assertAlmostEqual(self.matcher._normalize_value("100nF", "capacitor"), 100e-9)
+        self.assertAlmostEqual(self.matcher._normalize_value("10uF", "capacitor"), 10e-6)
+        self.assertAlmostEqual(self.matcher._normalize_value("22pF", "capacitor"), 22e-12)
+        self.assertAlmostEqual(self.matcher._normalize_value("1u", "capacitor"), 1e-6)
+
+    def test_alternative_matching_normalized(self):
+        catalog = {
+            "R0603-10K": {"footprint": "0603", "description": "RES 10K 1%"},
+            "C0402-1U": {"footprint": "0402", "description": "CAP 1UF 25V"}
+        }
+        
+        # Test resistor with different notation
+        target_res = {"mpn": "T1", "footprint": "0603", "description": "10000 OHM RESISTOR"}
+        alts_res = self.matcher.find_alternatives(target_res, catalog)
+        self.assertEqual(alts_res[0]["mpn"], "R0603-10K")
+        
+        # Test capacitor with different notation
+        target_cap = {"mpn": "T2", "footprint": "0402", "description": "1000NF CAP"}
+        alts_cap = self.matcher.find_alternatives(target_cap, catalog)
+        self.assertEqual(alts_cap[0]["mpn"], "C0402-1U")
 
     def test_alternative_matching_tolerance_fail(self):
         catalog = {

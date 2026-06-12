@@ -95,7 +95,7 @@ class BOMRequestHandler(BaseHTTPRequestHandler):
                 
                 try:
                     parser = BOMParser()
-                    bom_items = parser.parse_csv(temp_path)
+                    bom_items = parser.parse(temp_path)
                 finally:
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
