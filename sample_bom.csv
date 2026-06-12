@@ -1,0 +1,7 @@
+Part Number,Qty,Description,Footprint,Manufacturer
+STM32F405RGT6,3,MCU 32bit LQFP-64,LQFP-64,STMicroelectronics
+ESP32-WROOM-32E,10,Wi-Fi BT MCU Module,SMD-38,Espressif Systems
+MCP2515-I/SO,5,CAN Controller SPI,SOIC-18,Microchip Technology
+R0805-10K-1%,250,Resistor 10k 1% 0805,0805,Yageo
+C0603-100NF-50V,100,Capacitor 0.1uF 0603,0603,Murata
+MPU6050,1,IMU 6-Axis,QFN-24,InvenSense
