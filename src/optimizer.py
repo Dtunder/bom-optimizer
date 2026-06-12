@@ -1,32 +1,51 @@
 import itertools
 from typing import List, Dict, Any, Tuple
+from decimal import Decimal, ROUND_HALF_UP
 
 class BOMOptimizer:
     def __init__(self):
         # Shipping config: (Free threshold, Standard rate)
         self.shipping_config = {
-            "mouser": {"threshold": 50.0, "rate": 15.0},
-            "digikey": {"threshold": 50.0, "rate": 18.0},
-            "rs": {"threshold": 75.0, "rate": 12.0}
+            "mouser": {"threshold": Decimal("50.0"), "rate": Decimal("15.0")},
+            "digikey": {"threshold": Decimal("50.0"), "rate": Decimal("18.0")},
+            "rs": {"threshold": Decimal("75.0"), "rate": Decimal("12.0")}
+        }
+        # Offline exchange rate fallback (to EUR)
+        self.exchange_rates = {
+            "USD": Decimal("0.92"),
+            "GBP": Decimal("1.17"),
+            "JPY": Decimal("0.006"),
+            "CHF": Decimal("1.03"),
+            "EUR": Decimal("1.0")
         }
 
-    def _get_price_for_qty(self, price_breaks: Dict[int, float], qty: int) -> float:
-        """Returns the unit price for a given quantity based on price breaks."""
+    def _convert_to_eur(self, value: Decimal, currency: str) -> Decimal:
+        """Converts a given value to EUR using fallback rates."""
+        rate = self.exchange_rates.get(currency.upper(), Decimal("1.0"))
+        return (value * rate).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+    def _get_price_for_qty(self, price_breaks: Dict[int, Any], qty: int, currency: str = "EUR") -> Decimal:
+        """Returns the unit price for a given quantity based on price breaks, converted to EUR."""
         if not price_breaks:
-            return 0.0
+            return Decimal("0.0")
         try:
-            # Convert keys to int and sort
-            sorted_breaks = sorted({int(k): v for k, v in price_breaks.items() if float(v) > 0}.items(), reverse=True)
+            # Convert keys to int and values to Decimal and sort
+            sorted_breaks = sorted({int(k): Decimal(str(v)) for k, v in price_breaks.items() if Decimal(str(v)) > 0}.items(), reverse=True)
             if not sorted_breaks:
-                return 0.0
+                return Decimal("0.0")
                 
+            unit_price = Decimal("0.0")
             for break_qty, price in sorted_breaks:
                 if qty >= break_qty:
-                    return float(price)
-            # Default to the lowest quantity break price if it doesn't match
-            return float(sorted_breaks[-1][1])
+                    unit_price = price
+                    break
+            else:
+                # Default to the lowest quantity break price if it doesn't match
+                unit_price = sorted_breaks[-1][1]
+            
+            return self._convert_to_eur(unit_price, currency)
         except (ValueError, TypeError):
-            return 0.0
+            return Decimal("0.0")
 
     def optimize_single_source(self, bom_items: List[Dict[str, Any]], part_details: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Calculates total cost for each distributor if they fulfill the entire BOM."""
@@ -34,7 +53,7 @@ class BOMOptimizer:
         distributors = list(self.shipping_config.keys())
         
         for dist in distributors:
-            items_cost = 0.0
+            items_cost = Decimal("0.0")
             fulfilled_items = []
             unfulfilled_items = []
             
@@ -49,19 +68,20 @@ class BOMOptimizer:
                 stock = dist_data.get("stock", 0)
                 moq = max(1, dist_data.get("moq", 1))
                 price_breaks = dist_data.get("price_breaks", {})
+                currency = dist_data.get("currency", "EUR")
                 
                 order_qty = max(target_qty, moq)
                 
                 if stock >= order_qty and price_breaks:
-                    unit_price = self._get_price_for_qty(price_breaks, order_qty)
+                    unit_price = self._get_price_for_qty(price_breaks, order_qty, currency)
                     if unit_price > 0:
                         item_total = unit_price * order_qty
                         items_cost += item_total
                         fulfilled_items.append({
                             "mpn": mpn,
                             "qty": order_qty,
-                            "unit_price": unit_price,
-                            "total": item_total,
+                            "unit_price": float(unit_price),
+                            "total": float(item_total),
                             "shipping_days": dist_data.get("shipping_days", 3)
                         })
                     else:
@@ -74,12 +94,12 @@ class BOMOptimizer:
             
             if not unfulfilled_items:
                 shipping_cfg = self.shipping_config[dist]
-                shipping_cost = 0.0 if items_cost >= shipping_cfg["threshold"] else shipping_cfg["rate"]
+                shipping_cost = Decimal("0.0") if items_cost >= shipping_cfg["threshold"] else shipping_cfg["rate"]
                 results[dist] = {
                     "distributor": dist,
-                    "items_cost": round(items_cost, 2),
-                    "shipping_cost": round(shipping_cost, 2),
-                    "total_cost": round(items_cost + shipping_cost, 2),
+                    "items_cost": float(items_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
+                    "shipping_cost": float(shipping_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
+                    "total_cost": float((items_cost + shipping_cost).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
                     "parts": fulfilled_items,
                     "is_feasible": True
                 }
@@ -99,13 +119,13 @@ class BOMOptimizer:
         """
         distributors = list(self.shipping_config.keys())
         best_overall_result = None
-        min_total_cost = float('inf')
+        min_total_cost = Decimal("Infinity")
 
         # Iterate through all possible combinations (subsets) of distributors
         for r in range(1, len(distributors) + 1):
             for subset in itertools.combinations(distributors, r):
                 current_parts = []
-                distributors_used_cost = {d: 0.0 for d in subset}
+                distributors_used_cost = {d: Decimal("0.0") for d in subset}
                 feasible_subset = True
                 
                 for item in bom_items:
@@ -116,19 +136,20 @@ class BOMOptimizer:
                     details = part_details.get(mpn.upper(), {})
                     
                     best_dist_in_subset = None
-                    best_price_in_subset = float("inf")
+                    best_price_in_subset = Decimal("Infinity")
                     best_qty = target_qty
-                    best_unit_price = 0.0
+                    best_unit_price = Decimal("0.0")
                     
                     for dist in subset:
                         dist_data = details.get("distributors", {}).get(dist, {})
                         stock = dist_data.get("stock", 0)
                         moq = max(1, dist_data.get("moq", 1))
                         price_breaks = dist_data.get("price_breaks", {})
+                        currency = dist_data.get("currency", "EUR")
                         
                         order_qty = max(target_qty, moq)
                         if stock >= order_qty and price_breaks:
-                            unit_price = self._get_price_for_qty(price_breaks, order_qty)
+                            unit_price = self._get_price_for_qty(price_breaks, order_qty, currency)
                             if unit_price <= 0: continue
                             
                             total = unit_price * order_qty
@@ -143,19 +164,19 @@ class BOMOptimizer:
                             "mpn": mpn,
                             "distributor": best_dist_in_subset,
                             "qty": best_qty,
-                            "unit_price": best_unit_price,
-                            "total": best_price_in_subset
+                            "unit_price": float(best_unit_price),
+                            "total": float(best_price_in_subset)
                         })
                         distributors_used_cost[best_dist_in_subset] += best_price_in_subset
                     else:
                         # Check if this part is available anywhere in the entire catalog.
-                        # If it is available elsewhere, but not in our subset, this subset is unfeasible.
                         available_anywhere = False
                         for d in distributors:
                             d_data = details.get("distributors", {}).get(d, {})
                             d_moq = max(1, d_data.get("moq", 1))
+                            d_curr = d_data.get("currency", "EUR")
                             if d_data.get("stock", 0) >= max(target_qty, d_moq) and d_data.get("price_breaks"):
-                                if self._get_price_for_qty(d_data.get("price_breaks"), max(target_qty, d_moq)) > 0:
+                                if self._get_price_for_qty(d_data.get("price_breaks"), max(target_qty, d_moq), d_curr) > 0:
                                     available_anywhere = True
                                     break
                         
@@ -173,8 +194,8 @@ class BOMOptimizer:
                             })
                 
                 if feasible_subset:
-                    total_items_cost = 0.0
-                    total_shipping_cost = 0.0
+                    total_items_cost = Decimal("0.0")
+                    total_shipping_cost = Decimal("0.0")
                     dist_summaries = {}
                     
                     # Only consider distributors that were actually assigned parts
@@ -182,13 +203,13 @@ class BOMOptimizer:
                     
                     for dist, cost in actually_used.items():
                         cfg = self.shipping_config[dist]
-                        shipping = 0.0 if cost >= cfg["threshold"] else cfg["rate"]
+                        shipping = Decimal("0.0") if cost >= cfg["threshold"] else cfg["rate"]
                         total_items_cost += cost
                         total_shipping_cost += shipping
                         dist_summaries[dist] = {
-                            "items_cost": round(cost, 2),
-                            "shipping_cost": round(shipping, 2),
-                            "total": round(cost + shipping, 2)
+                            "items_cost": float(cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
+                            "shipping_cost": float(shipping.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
+                            "total": float((cost + shipping).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP))
                         }
                     
                     total_cost = total_items_cost + total_shipping_cost
@@ -197,9 +218,9 @@ class BOMOptimizer:
                         best_overall_result = {
                             "parts": current_parts,
                             "distributors": dist_summaries,
-                            "items_cost": round(total_items_cost, 2),
-                            "shipping_cost": round(total_shipping_cost, 2),
-                            "total_cost": round(total_cost, 2),
+                            "items_cost": float(total_items_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
+                            "shipping_cost": float(total_shipping_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
+                            "total_cost": float(total_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
                             "subset": subset
                         }
         

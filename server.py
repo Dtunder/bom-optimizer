@@ -3,8 +3,10 @@ import os
 import sys
 import csv
 import tempfile
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import html
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+import src.db as db
 
 # Add project path to sys.path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -13,6 +15,9 @@ from src.bom_parser import BOMParser
 from src.distributor_client import DistributorClient
 from src.optimizer import BOMOptimizer
 from src.alternative_matcher import AlternativeMatcher
+
+# Initialize database
+db.init_db()
 
 PORT = 8002
 WEB_DIR = Path(__file__).parent / "web"
@@ -28,10 +33,29 @@ class BOMRequestHandler(BaseHTTPRequestHandler):
         if path == "/" or path == "/index.html":
             file_path = WEB_DIR / "index.html"
             content_type = "text/html"
+        elif path == "/api/history":
+            history = db.get_recent_history()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(history).encode('utf-8'))
+            return
         else:
             # Prevent directory traversal
             clean_path = path.lstrip("/")
-            file_path = WEB_DIR / clean_path
+            file_path = (WEB_DIR / clean_path).resolve()
+            
+            # Security check: Ensure file_path is strictly inside WEB_DIR
+            # Using parent check to avoid prefix attacks (e.g. web vs web_secret)
+            try:
+                # Path.is_relative_to is Python 3.9+
+                file_path.relative_to(WEB_DIR.resolve())
+            except ValueError:
+                self.send_response(403)
+                self.end_headers()
+                self.wfile.write(b"403 Forbidden")
+                return
+
             if file_path.suffix == ".css":
                 content_type = "text/css"
             elif file_path.suffix == ".js":
@@ -59,45 +83,25 @@ class BOMRequestHandler(BaseHTTPRequestHandler):
             try:
                 payload = json.loads(post_data.decode('utf-8'))
                 csv_data = payload.get("csv_data", "")
+                filename = payload.get("filename", "uploaded_bom.csv")
                 
-                # Parse in-memory CSV
-                lines = csv_data.splitlines()
-                if not lines:
+                if not csv_data.strip():
                     raise ValueError("Empty CSV content")
                 
-                # Use BOMParser normalization logic
-                parser = BOMParser()
-                dialect = csv.Sniffer().sniff(csv_data[:4096]) if csv_data.strip() else csv.excel
-                reader = csv.reader(lines, dialect)
-                headers = next(reader, None)
-                if not headers:
-                    raise ValueError("No headers found in CSV")
+                # Write to temp file to reuse BOMParser
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv', encoding='utf-8') as tf:
+                    tf.write(csv_data)
+                    temp_path = tf.name
                 
-                header_map = parser._normalize_headers(headers)
-                if "mpn" not in header_map or "quantity" not in header_map:
-                    raise ValueError("Missing critical columns: Part Number (MPN) or Quantity")
+                try:
+                    parser = BOMParser()
+                    bom_items = parser.parse_csv(temp_path)
+                finally:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
                 
-                bom_items = []
-                for idx, row in enumerate(reader, start=2):
-                    if not row or all(not cell.strip() for cell in row):
-                        continue
-                    mpn = row[header_map["mpn"]].strip()
-                    raw_qty = row[header_map["quantity"]].strip()
-                    qty = int(raw_qty) if raw_qty.isdigit() else 1
-                    
-                    description = row[header_map["description"]].strip() if "description" in header_map and len(row) > header_map["description"] else ""
-                    footprint = row[header_map["footprint"]].strip() if "footprint" in header_map and len(row) > header_map["footprint"] else ""
-                    manufacturer = row[header_map["manufacturer"]].strip() if "manufacturer" in header_map and len(row) > header_map["manufacturer"] else ""
-                    
-                    if mpn:
-                        bom_items.append({
-                            "mpn": mpn,
-                            "quantity": qty,
-                            "description": description,
-                            "footprint": footprint,
-                            "manufacturer": manufacturer,
-                            "line": idx
-                        })
+                if not bom_items:
+                    raise ValueError("No valid parts found in CSV")
                 
                 # Query prices and run optimizers
                 dist_client = DistributorClient()
@@ -126,6 +130,10 @@ class BOMRequestHandler(BaseHTTPRequestHandler):
                     "split_source": split_res
                 }
                 
+                # Save to database
+                bom_id = db.save_bom(filename, len(bom_items))
+                db.save_history(bom_id, split_res.get("total_cost", 0.0), response_data)
+                
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -135,14 +143,15 @@ class BOMRequestHandler(BaseHTTPRequestHandler):
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode('utf-8'))
+                # Sanitize error message just in case it's displayed in HTML
+                self.wfile.write(json.dumps({"success": False, "error": html.escape(str(e))}).encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()
 
 def run_server():
     server_address = ('', PORT)
-    httpd = HTTPServer(server_address, BOMRequestHandler)
+    httpd = ThreadingHTTPServer(server_address, BOMRequestHandler)
     print(f"\n=======================================================")
     print(f"  Sovereign BOM Optimizer Server Running on Port {PORT}")
     print(f"  Access the dashboard at: http://localhost:{PORT}")

@@ -8,11 +8,84 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.bom_parser import BOMParser
 from src.optimizer import BOMOptimizer
 from src.alternative_matcher import AlternativeMatcher
+import src.db as db
+import os
+import json
+from decimal import Decimal
 
 class TestBOMOptimizer(unittest.TestCase):
     def setUp(self):
         self.opt = BOMOptimizer()
         self.matcher = AlternativeMatcher()
+        # Use a temporary test database
+        db.DB_PATH = Path(__file__).parent / "test_history.db"
+        db.init_db()
+
+    def tearDown(self):
+        if db.DB_PATH.exists():
+            os.remove(db.DB_PATH)
+
+    def test_currency_conversion(self):
+        # Test USD to EUR
+        usd_price = Decimal("1.0")
+        eur_price = self.opt._convert_to_eur(usd_price, "USD")
+        self.assertEqual(eur_price, Decimal("0.9200"))
+        
+        # Test GBP to EUR
+        gbp_price = Decimal("1.0")
+        eur_price = self.opt._convert_to_eur(gbp_price, "GBP")
+        self.assertEqual(eur_price, Decimal("1.1700"))
+
+    def test_optimizer_price_breaks_with_currency(self):
+        price_breaks = {1: 10.0, 10: 8.0}
+        # 8.0 USD * 0.92 = 7.36 EUR
+        self.assertAlmostEqual(float(self.opt._get_price_for_qty(price_breaks, 12, "USD")), 7.36, places=2)
+
+    def test_alternative_matching_safety_constraints(self):
+        catalog = {
+            "C0805-100NF-50V-10%": {"footprint": "0805", "description": "CAP CER 100NF 50V 10%"},
+            "C0805-100NF-25V-5%": {"footprint": "0805", "description": "CAP CER 100NF 25V 5%"},
+            "C0805-100NF-100V-5%": {"footprint": "0805", "description": "CAP CER 100NF 100V 5%"}
+        }
+        
+        # Target: 50V, 10%
+        target = {"mpn": "TARGET", "footprint": "0805", "description": "100NF 50V 10%"}
+        
+        alts = self.matcher.find_alternatives(target, catalog)
+        
+        # Should NOT include 25V one (lower voltage)
+        mpns = [a["mpn"] for a in alts]
+        self.assertNotIn("C0805-100NF-25V-5%", mpns)
+        
+        # Should include 100V 5% (higher voltage, better tolerance)
+        self.assertIn("C0805-100NF-100V-5%", mpns)
+        self.assertIn("C0805-100NF-50V-10%", mpns)
+
+    def test_alternative_matching_tolerance_fail(self):
+        catalog = {
+            "R0603-10K-5%": {"footprint": "0603", "description": "RES 10K 5%"},
+            "R0603-10K-0.1%": {"footprint": "0603", "description": "RES 10K 0.1%"}
+        }
+        # Target: 10K 1%
+        target = {"mpn": "TARGET", "footprint": "0603", "description": "10K 1% RES"}
+        
+        alts = self.matcher.find_alternatives(target, catalog)
+        mpns = [a["mpn"] for a in alts]
+        
+        self.assertNotIn("R0603-10K-5%", mpns)
+        self.assertIn("R0603-10K-0.1%", mpns)
+
+    def test_db_persistence(self):
+        bom_id = db.save_bom("test.csv", 5)
+        self.assertIsNotNone(bom_id)
+        
+        db.save_history(bom_id, 123.45, {"data": "test"})
+        
+        history = db.get_recent_history()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["filename"], "test.csv")
+        self.assertEqual(history[0]["total_cost"], 123.45)
+        self.assertEqual(history[0]["result"], {"data": "test"})
 
     def test_bom_parser_normalizes_columns(self):
         parser = BOMParser()

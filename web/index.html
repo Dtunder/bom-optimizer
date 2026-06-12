@@ -299,7 +299,10 @@
 
         <div class="dashboard" id="dashboard-view">
             <div class="panel">
-                <h2>Optimized Purchase Distribution Plan (Cheapest Split)</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                    <h2 style="margin-bottom: 0; border-bottom: none;">Optimized Purchase Distribution Plan</h2>
+                    <button id="reset-btn" style="background: rgba(139, 92, 246, 0.1); border: 1px solid var(--accent-purple); color: #ffffff; padding: 0.5rem 1rem; border-radius: 10px; cursor: pointer; font-family: inherit; font-weight: 600; font-size: 0.8rem; transition: all 0.3s ease;">UPLOAD NEW BOM</button>
+                </div>
                 <table id="split-table">
                     <thead>
                         <tr>
@@ -349,6 +352,24 @@
                 </div>
             </div>
         </div>
+
+        <div class="panel" id="history-panel">
+            <h2>Recent Optimization History</h2>
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Filename</th>
+                        <th>Parts</th>
+                        <th>Total Cost</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    <!-- Filled dynamically -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
@@ -356,8 +377,27 @@
         const fileInput = document.getElementById('file-input');
         const spinner = document.getElementById('loading-spinner');
         const dashboard = document.getElementById('dashboard-view');
+        const historyPanel = document.getElementById('history-panel');
+        const resetBtn = document.getElementById('reset-btn');
         
+        let historyData = {}; // Global store for history items
+
         fileInput.addEventListener('change', handleFileSelect);
+        resetBtn.addEventListener('click', () => {
+            dashboard.style.display = 'none';
+            dropZone.style.display = 'block';
+            historyPanel.style.display = 'block';
+            localStorage.removeItem('last_bom_result');
+        });
+
+        // Load cached result or history on startup
+        window.onload = () => {
+            const cached = localStorage.getItem('last_bom_result');
+            if (cached) {
+                renderDashboard(JSON.parse(cached));
+            }
+            fetchHistory();
+        };
         
         function handleFileSelect(e) {
             const file = e.target.files[0];
@@ -365,39 +405,96 @@
             
             const reader = new FileReader();
             reader.onload = function(evt) {
-                uploadBOM(evt.target.result);
+                uploadBOM(evt.target.result, file.name);
             };
             reader.readAsText(file);
         }
 
-        async function uploadBOM(csvContent) {
+        async function uploadBOM(csvContent, filename) {
             spinner.style.display = 'block';
             dashboard.style.display = 'none';
             dropZone.style.display = 'none';
+            historyPanel.style.display = 'none';
 
             try {
                 const response = await fetch('/api/upload', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ csv_data: csvContent })
+                    body: JSON.stringify({ csv_data: csvContent, filename: filename })
                 });
                 
                 const data = await response.json();
                 if (data.success) {
+                    localStorage.setItem('last_bom_result', JSON.stringify(data));
                     renderDashboard(data);
+                    fetchHistory();
                 } else {
                     alert('Optimization failed: ' + data.error);
                     dropZone.style.display = 'block';
+                    historyPanel.style.display = 'block';
                 }
             } catch (err) {
                 alert('Network connection error: ' + err.message);
                 dropZone.style.display = 'block';
+                historyPanel.style.display = 'block';
             } finally {
                 spinner.style.display = 'none';
             }
         }
 
+        async function fetchHistory() {
+            try {
+                const response = await fetch('/api/history');
+                const history = await response.json();
+                renderHistory(history);
+            } catch (err) {
+                console.error('Failed to fetch history:', err);
+            }
+        }
+
+        function renderHistory(history) {
+            const body = document.getElementById('history-body');
+            body.innerHTML = '';
+            historyData = {}; // Reset global store
+            
+            if (history.length === 0) {
+                body.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary)">No history found</td></tr>';
+                return;
+            }
+
+            history.forEach(item => {
+                historyData[item.id] = item.result;
+                const tr = document.createElement('tr');
+                const date = new Date(item.timestamp).toLocaleString();
+                
+                tr.innerHTML = `
+                    <td>${date}</td>
+                    <td><strong>${item.filename}</strong></td>
+                    <td>${item.item_count} items</td>
+                    <td><strong>&euro; ${item.total_cost.toFixed(2)}</strong></td>
+                    <td>
+                        <button onclick="viewHistoryItem(${item.id})" 
+                                style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--accent-blue); color: #ffffff; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">
+                            VIEW
+                        </button>
+                    </td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        window.viewHistoryItem = (id) => {
+            const result = historyData[id];
+            if (result) {
+                renderDashboard(result);
+                localStorage.setItem('last_bom_result', JSON.stringify(result));
+            }
+        };
+
         function renderDashboard(data) {
+            dropZone.style.display = 'none';
+            historyPanel.style.display = 'none';
+            
             // Render Split Sourcing Table
             const splitBody = document.getElementById('split-body');
             splitBody.innerHTML = '';

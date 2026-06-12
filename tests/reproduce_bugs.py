@@ -80,8 +80,8 @@ class TestEdgeCases(unittest.TestCase):
         # Description with multiple values
         params = self.matcher._extract_parameters("RES 10K 50V 1% 0805")
         self.assertEqual(params["value"], "10K")
-        self.assertEqual(params["voltage"], "50V")
-        self.assertEqual(params["tolerance"], "1%")
+        self.assertEqual(params["voltage"], 50.0)
+        self.assertEqual(params["tolerance"], 1.0)
 
     def test_distributor_client_fallback(self):
         # Querying non-existent part should generate data and not crash

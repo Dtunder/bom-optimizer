@@ -1,5 +1,6 @@
 import os
 import argparse
+import html
 from pathlib import Path
 from src.bom_parser import BOMParser
 from src.distributor_client import DistributorClient
@@ -23,7 +24,7 @@ def generate_html_report(single_results, split_results, bom_items, client, outpu
             
         single_feasibility += f"""
         <tr>
-            <td><strong>{dist.upper()}</strong></td>
+            <td><strong>{html.escape(dist.upper())}</strong></td>
             <td>{status_badge}</td>
             <td>{shipping_str}</td>
             <td><strong>{total_str}</strong></td>
@@ -34,18 +35,19 @@ def generate_html_report(single_results, split_results, bom_items, client, outpu
     split_rows = ""
     matcher = AlternativeMatcher()
     for item in split_results["parts"]:
-        mpn = item["mpn"]
+        mpn = html.escape(item["mpn"])
         qty = item["qty"]
-        dist = item.get("distributor", "").upper() if item.get("distributor") else '<span class="badge danger">OUT OF STOCK</span>'
+        dist_name = item.get("distributor", "").upper() if item.get("distributor") else None
+        dist = f'<span class="badge info">{html.escape(dist_name)}</span>' if dist_name else '<span class="badge danger">OUT OF STOCK</span>'
         price = f"&euro; {item['unit_price']:.3f}" if item.get("unit_price") else "-"
         total = f"&euro; {item['total']:.2f}" if item.get("total") else "-"
         
         alt_str = ""
         if item.get("unfulfilled"):
             # Try to match alternatives
-            alts = matcher.find_alternatives({"mpn": mpn, "footprint": "SMD", "description": ""}, client._mock_db)
+            alts = matcher.find_alternatives({"mpn": item["mpn"], "footprint": "SMD", "description": ""}, client._mock_db)
             if alts:
-                alt_str = "<br><small class='alt-text'>Suggested Alternative: <strong>" + alts[0]["mpn"] + "</strong> (Confidence: " + str(alts[0]["confidence"]) + "%)</small>"
+                alt_str = "<br><small class='alt-text'>Suggested Alternative: <strong>" + html.escape(alts[0]["mpn"]) + "</strong> (Confidence: " + str(alts[0]["confidence"]) + "%)</small>"
             else:
                 alt_str = "<br><small class='alt-text-none'>No compatible alternatives found.</small>"
 
@@ -53,7 +55,7 @@ def generate_html_report(single_results, split_results, bom_items, client, outpu
         <tr>
             <td>{mpn}{alt_str}</td>
             <td>{qty}</td>
-            <td><span class="badge info">{dist}</span></td>
+            <td>{dist}</td>
             <td>{price}</td>
             <td><strong>{total}</strong></td>
         </tr>
@@ -336,7 +338,7 @@ def main():
     print("="*50 + "\n")
 
     # Generate html dashboard
-    output_report = Path(r"C:\Users\user\.gemini\antigravity-ide\scratch\bom_optimizer") / args.output
+    output_report = Path(__file__).parent / args.output
     generate_html_report(single_res, split_res, bom_items, dist_client, output_report)
 
 if __name__ == "__main__":

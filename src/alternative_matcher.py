@@ -26,9 +26,9 @@ class AlternativeMatcher:
                 return norm
         return clean
 
-    def _extract_parameters(self, desc: str) -> Dict[str, str]:
-        """Extracts value, voltage, and tolerance from description."""
-        params = {"value": "", "voltage": "", "tolerance": ""}
+    def _extract_parameters(self, desc: str) -> Dict[str, Any]:
+        """Extracts numeric value, voltage, and tolerance from description."""
+        params = {"value": "", "voltage": 0.0, "tolerance": 100.0}
         desc_up = desc.upper()
         
         # Value extraction
@@ -43,14 +43,14 @@ class AlternativeMatcher:
             params["value"] = cap_match.group(0)
             
         # Voltage (e.g. 50V, 6.3V, 100VDC)
-        volt_match = re.search(r"\b\d+(?:\.\d+)?V(?:DC)?\b", desc_up)
+        volt_match = re.search(r"\b(\d+(?:\.\d+)?)\s*V(?:DC)?\b", desc_up)
         if volt_match:
-            params["voltage"] = volt_match.group(0)
+            params["voltage"] = float(volt_match.group(1))
             
         # Tolerance (e.g. 1%, 5%, 0.1%)
-        tol_match = re.search(r"\b\d+(?:\.\d+)?%", desc_up)
+        tol_match = re.search(r"\b(\d+(?:\.\d+)?)\s*%", desc_up)
         if tol_match:
-            params["tolerance"] = tol_match.group(0)
+            params["tolerance"] = float(tol_match.group(1))
             
         return params
 
@@ -81,6 +81,17 @@ class AlternativeMatcher:
             if target_fp and catalog_fp and target_fp != catalog_fp:
                 continue
                 
+            # SAFETY CONSTRAINTS:
+            # 1. Voltage must be >= target voltage
+            if target_params["voltage"] > 0 and catalog_params["voltage"] > 0:
+                if catalog_params["voltage"] < target_params["voltage"]:
+                    continue
+            
+            # 2. Tolerance must be <= target tolerance
+            if target_params["tolerance"] < 100.0 and catalog_params["tolerance"] < 100.0:
+                if catalog_params["tolerance"] > target_params["tolerance"]:
+                    continue
+
             confidence = 0
             
             # Match value (strongest indicator)
@@ -88,12 +99,12 @@ class AlternativeMatcher:
                 confidence += 70
                 
                 # Bonus for voltage/tolerance matching
-                if target_params["voltage"] and catalog_params["voltage"]:
-                    if target_params["voltage"] == catalog_params["voltage"]:
+                if target_params["voltage"] > 0 and catalog_params["voltage"] > 0:
+                    if catalog_params["voltage"] == target_params["voltage"]:
                         confidence += 15
                 
-                if target_params["tolerance"] and catalog_params["tolerance"]:
-                    if target_params["tolerance"] == catalog_params["tolerance"]:
+                if target_params["tolerance"] < 100.0 and catalog_params["tolerance"] < 100.0:
+                    if catalog_params["tolerance"] == target_params["tolerance"]:
                         confidence += 10
             elif comp_class:
                 # Ensure same component type even if value is unknown
