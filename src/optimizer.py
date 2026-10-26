@@ -75,8 +75,42 @@ class BOMOptimizer:
             fulfilled_items = []
             unfulfilled_items = []
             stock_used = {}
-            
+
+            # A distributor places one order per part number, not one minimum
+            # lot per BOM row. Consolidate repeated MPNs only when the whole
+            # requested quantity is purchasable. Otherwise retain the original
+            # rows to preserve partial-fulfillment reporting.
+            grouped = {}
             for item in bom_items:
+                mpn = item.get("mpn", "").strip()
+                if mpn:
+                    grouped.setdefault(mpn.upper(), []).append(item)
+            consolidated = {}
+            for key, rows in grouped.items():
+                if len(rows) < 2:
+                    continue
+                requested = sum(max(1, int(row.get("quantity", 1))) for row in rows)
+                offer = part_details.get(key, {}).get("distributors", {}).get(dist, {})
+                breaks = offer.get("price_breaks", {})
+                order_qty = self._order_qty_with_price_break(
+                    requested, max(1, offer.get("moq", 1)), breaks
+                )
+                if (breaks and offer.get("stock", 0) >= order_qty
+                        and self._get_price_for_qty(breaks, order_qty, offer.get("currency", "EUR")) > 0):
+                    consolidated[key] = requested
+
+            effective_items = []
+            seen = set()
+            for item in bom_items:
+                key = item.get("mpn", "").strip().upper()
+                if key in consolidated:
+                    if key not in seen:
+                        effective_items.append({"mpn": item["mpn"], "quantity": consolidated[key]})
+                        seen.add(key)
+                else:
+                    effective_items.append(item)
+
+            for item in effective_items:
                 mpn = item.get("mpn", "").strip()
                 if not mpn: continue
                 

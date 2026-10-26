@@ -1,0 +1,104 @@
+{
+  "run_id": "portfolio-quality-2026-10-26-1050",
+  "checked_at": "2026-10-26T10:52:24+01:00",
+  "repo": "Dtunder/bom-optimizer",
+  "baseline_sha": "096b1799c7561186d6ca15fe37fe6318bc996afa",
+  "scope": "Single-source repeated-MPN purchasing must combine demand before applying MOQ and quantity price tiers",
+  "candidates": [
+    {
+      "issue": "Repeated MPN rows each trigger a separate MOQ and falsely mark fulfillable BOM infeasible",
+      "priority": "P1",
+      "status": "BEHOBEN"
+    },
+    {
+      "issue": "Repeated MPN demand is not combined before quantity-tier pricing",
+      "priority": "P1",
+      "status": "BEHOBEN"
+    },
+    {
+      "issue": "Split-source duplicate MPN minimum-lot consolidation may still miss lower-cost feasible assignments",
+      "priority": "P1",
+      "status": "OFFEN_NOT_FIXED"
+    },
+    {
+      "issue": "Stock below consolidated required lot incorrectly treated as sufficient",
+      "priority": "P2",
+      "status": "FALSCH_REGRESSION_GUARD_PASSED"
+    },
+    {
+      "issue": "Distinct MPNs incorrectly consolidated",
+      "priority": "P2",
+      "status": "FALSCH_REGRESSION_GUARD_PASSED"
+    }
+  ],
+  "red": {
+    "command": "python -m unittest discover -s tests -p test_repeated_moq_aggregation.py -v",
+    "runtime": "Python 3.14.4 / Windows",
+    "pass": 2,
+    "fail": 2,
+    "total": 4,
+    "exit_code": 1,
+    "example": {
+      "bom": [
+        {
+          "mpn": "ABC",
+          "quantity": 1
+        },
+        {
+          "mpn": "abc",
+          "quantity": 1
+        }
+      ],
+      "stock": 10,
+      "moq": 10,
+      "price_breaks": {
+        "10": 2
+      },
+      "expected": "feasible, ordered_qty=10, items_cost_EUR=20, total_EUR=35",
+      "actual": "is_feasible=false, unfulfilled ABC/abc out of stock"
+    }
+  },
+  "green": {
+    "command": "python -m unittest discover -s tests -p test_repeated_moq_aggregation.py -v",
+    "pass": 4,
+    "fail": 0,
+    "total": 4,
+    "exit_code": 0,
+    "extended_oracle": {
+      "scenarios": 40,
+      "passed": 40,
+      "command": "python -m unittest discover -s tests -p test_repeated_moq_aggregation.py -v",
+      "focused_total_after_oracle": 5,
+      "focused_pass_after_oracle": 5
+    }
+  },
+  "regression": {
+    "command": "python -m unittest discover -s tests -p test_*.py -q",
+    "pass": 34,
+    "total": 34,
+    "exit_code": 0,
+    "compileall_exit_code": 0,
+    "diff_check_exit_code": 0
+  },
+  "delta": {
+    "reproduced_failing_tests_fixed": 2,
+    "unnecessary_minimum_lot_double_counting_cases_fixed": 1,
+    "independent_oracle_scenarios_passed": 40,
+    "new_verified_demos": 0,
+    "new_safe_public_projects": 0
+  },
+  "files": [
+    "src/optimizer.py",
+    "tests/test_repeated_moq_aggregation.py",
+    "quality/2026-10-26-single-source-moq-aggregation.json"
+  ],
+  "security": "Synthetic part numbers and offers only; no private data, secrets, or paid cloud resources",
+  "limitations": "Only single-source consolidation is corrected. Split-source cross-supplier quantity allocation remains a separate unverified/open issue. Aggregated purchase rows replace duplicate BOM rows when fully purchasable.",
+  "deployment": {
+    "portfolio_website_changed": false,
+    "live_browser_verified": false,
+    "github_pr": null,
+    "merged_main_sha": null
+  },
+  "next": "Reproduce and solve split-source repeated-MPN MOQ consolidation without incorrectly certifying global optimality"
+}
