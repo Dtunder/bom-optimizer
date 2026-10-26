@@ -74,6 +74,7 @@ class BOMOptimizer:
             items_cost = Decimal("0.0")
             fulfilled_items = []
             unfulfilled_items = []
+            stock_used = {}
             
             for item in bom_items:
                 mpn = item.get("mpn", "").strip()
@@ -90,11 +91,13 @@ class BOMOptimizer:
                 
                 order_qty = self._order_qty_with_price_break(target_qty, moq, price_breaks)
                 
-                if stock >= order_qty and price_breaks:
+                available_stock = stock - stock_used.get(mpn.upper(), 0)
+                if available_stock >= order_qty and price_breaks:
                     unit_price = self._get_price_for_qty(price_breaks, order_qty, currency)
                     if unit_price > 0:
                         item_total = unit_price * order_qty
                         items_cost += item_total
+                        stock_used[mpn.upper()] = stock_used.get(mpn.upper(), 0) + order_qty
                         fulfilled_items.append({
                             "mpn": mpn,
                             "qty": order_qty,
@@ -107,7 +110,7 @@ class BOMOptimizer:
                 else:
                     unfulfilled_items.append({
                         "mpn": mpn,
-                        "reason": "Out of stock" if stock < order_qty else "Not carried"
+                        "reason": "Out of stock" if available_stock < order_qty else "Not carried"
                     })
             
             if not unfulfilled_items:
@@ -176,25 +179,34 @@ class BOMOptimizer:
             nonlocal evaluations
             evaluations += 1
             subtotals = {}
-            for option in assignment:
-                dist, _, _, cost = option
-                if dist is not None:
-                    subtotals[dist] = subtotals.get(dist, Decimal("0")) + cost
+            used = {}
+            unfulfilled = 0
+            for (mpn, _), (dist, qty, _, cost) in zip(lines, assignment):
+                if dist is None:
+                    unfulfilled += 1
+                    continue
+                key = (mpn.upper(), dist)
+                stock = part_details.get(mpn.upper(), {}).get("distributors", {}).get(dist, {}).get("stock", 0)
+                if used.get(key, 0) + qty > stock:
+                    unfulfilled += 1
+                    continue
+                used[key] = used.get(key, 0) + qty
+                subtotals[dist] = subtotals.get(dist, Decimal("0")) + cost
             shipping = sum(
                 (Decimal("0") if subtotal >= self.shipping_config[dist]["threshold"]
                  else self.shipping_config[dist]["rate"])
                 for dist, subtotal in subtotals.items()
             )
-            return sum(subtotals.values(), Decimal("0")) + shipping
+            return (unfulfilled, sum(subtotals.values(), Decimal("0")) + shipping)
 
         exact = search_space <= 50000
         if exact:
-            best_cost = Decimal("Infinity")
+            best_score = (len(lines) + 1, Decimal("Infinity"))
             best_assignment = None
             for assignment in itertools.product(*(opts for _, opts in lines)):
                 cost = evaluate(assignment)
-                if cost < best_cost:
-                    best_cost = cost
+                if cost < best_score:
+                    best_score = cost
                     best_assignment = assignment
         else:
             # Deterministic bounded multi-start coordinate descent. Evaluate
@@ -206,7 +218,7 @@ class BOMOptimizer:
                     next((opt for opt in opts if opt[0] == preferred), cheapest[i])
                     for i, (_, opts) in enumerate(lines)
                 ])
-            best_cost = Decimal("Infinity")
+            best_score = (len(lines) + 1, Decimal("Infinity"))
             best_assignment = None
             for seed in starts:
                 current = list(seed)
@@ -230,22 +242,31 @@ class BOMOptimizer:
                             improved = True
                     if not improved:
                         break
-                if current_cost < best_cost:
-                    best_cost = current_cost
+                if current_cost < best_score:
+                    best_score = current_cost
                     best_assignment = tuple(current)
 
         parts = []
         subtotals = {}
+        stock_used = {}
         for (mpn, _), (dist, qty, unit, cost) in zip(lines, best_assignment):
-            part = {
-                "mpn": mpn, "distributor": dist, "qty": qty,
-                "unit_price": float(unit), "total": float(cost)
-            }
+            key = (mpn.upper(), dist)
+            if dist is not None:
+                stock = part_details.get(mpn.upper(), {}).get("distributors", {}).get(dist, {}).get("stock", 0)
+                if stock_used.get(key, 0) + qty > stock:
+                    dist = None
             if dist is None:
-                part["unfulfilled"] = True
+                parts.append({
+                    "mpn": mpn, "distributor": None, "qty": qty,
+                    "unit_price": 0.0, "total": 0.0, "unfulfilled": True
+                })
             else:
+                stock_used[key] = stock_used.get(key, 0) + qty
                 subtotals[dist] = subtotals.get(dist, Decimal("0")) + cost
-            parts.append(part)
+                parts.append({
+                    "mpn": mpn, "distributor": dist, "qty": qty,
+                    "unit_price": float(unit), "total": float(cost)
+                })
 
         summaries = {}
         total_shipping = Decimal("0")
