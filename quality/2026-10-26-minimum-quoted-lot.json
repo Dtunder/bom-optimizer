@@ -1,0 +1,76 @@
+{
+  "run_id": "portfolio-quality-2026-10-26-0550",
+  "checked_at": "2026-10-26T05:50:54+01:00",
+  "repo": "Dtunder/bom-optimizer",
+  "baseline_sha": "401f7101f0cf98e2e749af1f5d977a8569fb0183",
+  "patch_branch": "fix/minimum-price-break-lot-20261026",
+  "candidates": [
+    {
+      "issue": "Quoted price break at 10 units applied to an order of 1 unit in single-source calculation",
+      "status": "FIXED_VERIFIED",
+      "priority": "P1"
+    },
+    {
+      "issue": "Same price-break/quantity mismatch in split-source optimization",
+      "status": "FIXED_VERIFIED",
+      "priority": "P1"
+    },
+    {
+      "issue": "Stock below the first quoted quantity falsely considered sufficient",
+      "status": "FIXED_VERIFIED",
+      "priority": "P1"
+    },
+    {
+      "issue": "Greedy per-item distributor choice can miss shipping-threshold optimum",
+      "status": "OPEN_UNTESTED",
+      "priority": "P2"
+    },
+    {
+      "issue": "Portfolio highlight test counts may be stale relative to GitHub CI",
+      "status": "OPEN_UNTESTED",
+      "priority": "P2"
+    }
+  ],
+  "reproducer": {
+    "command": "python -m unittest discover -s tests -p test_min_order_break.py -v",
+    "before": {
+      "passed": 1,
+      "failed": 3,
+      "total": 4,
+      "exit_code": 1
+    },
+    "after": {
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "exit_code": 0
+    },
+    "scenario": "Requested 1 unit, only positive quoted tier >=10 units at EUR 2 per unit, stock 20, distributor MOQ 1",
+    "before_behavior": "Incorrectly claimed order quantity 1 and parts cost EUR 2 (with shipping EUR 17 total)",
+    "after_behavior": "Correctly orders 10 and charges EUR 20 parts + EUR 15 shipping = EUR 35",
+    "stock_edge": "Stock 5 cannot fulfill minimum quoted lot 10"
+  },
+  "tests": {
+    "existing_test_suite_before": "12/12 PASS (test*.py)",
+    "test_suite_after": "16/16 PASS (test*.py)",
+    "all_test_files_after": "26/26 PASS (*.py), exit 0",
+    "cli": "python main.py --bom sample_bom.csv --output reports/quality-smoke.html: exit 0; 6 parts; generated HTML report",
+    "diff_check": "git diff --check: exit 0"
+  },
+  "delta": {
+    "previously_failing_regressions_now_passing": 3,
+    "incorrectly_feasible_stock_case_fixed": 1,
+    "quoted_cost_example_before_eur": 17,
+    "quoted_cost_example_after_eur": 35
+  },
+  "scope": "Public synthetic sample data only, no external distributor purchases or real-time prices",
+  "limitations": [
+    "Treat first positive quoted price-break as minimum purchasable lot; real distributor contracts may provide other tiers not in the supplied data.",
+    "No claim that the greedy shipping-aware assignment algorithm is globally optimal for all multi-item BOMs."
+  ],
+  "next": [
+    "Reproduce and fix suboptimal shipping-threshold assignments in split-source optimizer",
+    "Independently verify next untested engineering repository",
+    "Reconcile portfolio highlight test claims with current CI"
+  ]
+}
