@@ -47,6 +47,24 @@ class BOMOptimizer:
         except (ValueError, TypeError):
             return Decimal("0.0")
 
+    @staticmethod
+    def _order_qty_with_price_break(requested_qty: int, moq: int, price_breaks: Dict[int, Any]) -> int:
+        """The first quoted price tier is also the smallest purchasable lot.
+
+        Never price an order below its minimum quoted break: doing so
+        understates purchase cost and can falsely claim stock sufficiency.
+        """
+        valid_breaks = []
+        for raw_qty, raw_price in price_breaks.items():
+            try:
+                break_qty = int(raw_qty)
+                price = Decimal(str(raw_price))
+                if break_qty > 0 and price.is_finite() and price > 0:
+                    valid_breaks.append(break_qty)
+            except (ValueError, TypeError, ArithmeticError):
+                continue
+        return max(requested_qty, int(moq), min(valid_breaks)) if valid_breaks else max(requested_qty, int(moq))
+
     def optimize_single_source(self, bom_items: List[Dict[str, Any]], part_details: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Calculates total cost for each distributor if they fulfill the entire BOM."""
         results = {}
@@ -70,7 +88,7 @@ class BOMOptimizer:
                 price_breaks = dist_data.get("price_breaks", {})
                 currency = dist_data.get("currency", "EUR")
                 
-                order_qty = max(target_qty, moq)
+                order_qty = self._order_qty_with_price_break(target_qty, moq, price_breaks)
                 
                 if stock >= order_qty and price_breaks:
                     unit_price = self._get_price_for_qty(price_breaks, order_qty, currency)
@@ -147,7 +165,7 @@ class BOMOptimizer:
                         price_breaks = dist_data.get("price_breaks", {})
                         currency = dist_data.get("currency", "EUR")
                         
-                        order_qty = max(target_qty, moq)
+                        order_qty = self._order_qty_with_price_break(target_qty, moq, price_breaks)
                         if stock >= order_qty and price_breaks:
                             unit_price = self._get_price_for_qty(price_breaks, order_qty, currency)
                             if unit_price <= 0: continue
@@ -175,8 +193,10 @@ class BOMOptimizer:
                             d_data = details.get("distributors", {}).get(d, {})
                             d_moq = max(1, d_data.get("moq", 1))
                             d_curr = d_data.get("currency", "EUR")
-                            if d_data.get("stock", 0) >= max(target_qty, d_moq) and d_data.get("price_breaks"):
-                                if self._get_price_for_qty(d_data.get("price_breaks"), max(target_qty, d_moq), d_curr) > 0:
+                            d_breaks = d_data.get("price_breaks", {})
+                            d_order_qty = self._order_qty_with_price_break(target_qty, d_moq, d_breaks)
+                            if d_data.get("stock", 0) >= d_order_qty and d_breaks:
+                                if self._get_price_for_qty(d_breaks, d_order_qty, d_curr) > 0:
                                     available_anywhere = True
                                     break
                         
