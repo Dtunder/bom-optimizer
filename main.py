@@ -230,7 +230,7 @@ def generate_html_report(single_results, split_results, bom_items, client, outpu
 
         <div class="grid">
             <div class="panel">
-                <h2>Split-Source Purchase Plan (Cheapest Mix)</h2>
+                <h2>Split-Source Purchase Plan</h2>
                 <table>
                     <thead>
                         <tr>
@@ -249,7 +249,7 @@ def generate_html_report(single_results, split_results, bom_items, client, outpu
 
             <div>
                 <div class="summary-card">
-                    <h3>Optimal Total Cost</h3>
+                    <h3>{"Optimal Total Cost" if split_results.get("is_optimal") else ("Best Found Total (Not Certified)" if split_results.get("is_feasible") else "Partial Cost (Unfulfilled Lines)")}</h3>
                     <div class="price">&euro; {split_results["total_cost"]:.2f}</div>
                     <div class="meta-grid">
                         <div class="meta-item">
@@ -326,7 +326,8 @@ def main():
     print("\n" + "="*50)
     print("           BOM OPTIMIZATION SUMMARY")
     print("="*50)
-    print(f"Optimal Split-Source Cost: EUR {split_res['total_cost']:.2f}")
+    status = "Optimal" if split_res.get("is_optimal") else ("Best found (not certified)" if split_res.get("is_feasible") else "Partial (unfulfilled lines)")
+    print(f"{status} Split-Source Cost: EUR {split_res['total_cost']:.2f}")
     print(f"  - Parts Cost: EUR {split_res['items_cost']:.2f}")
     print(f"  - Shipping Cost: EUR {split_res['shipping_cost']:.2f}")
     print("\nConsolidated Single-Source Options:")

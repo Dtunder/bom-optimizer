@@ -353,7 +353,7 @@
 
             <div>
                 <div class="summary-card">
-                    <h3>Optimal Combined Cost</h3>
+                    <h3 id="split-total-heading">Combined Cost</h3>
                     <div class="price" id="total-price">&euro; 0.00</div>
                     <div class="meta-grid">
                         <div class="meta-item">
@@ -589,6 +589,7 @@
             });
 
             // Update Costs Cards
+            document.getElementById('split-total-heading').textContent = data.split_source.is_optimal ? 'Optimal Combined Cost' : (data.split_source.is_feasible ? 'Best Found Cost (Not Certified)' : 'Partial Cost (Unfulfilled Lines)');
             document.getElementById('total-price').textContent = `\u20AC ${data.split_source.total_cost.toFixed(2)}`;
             document.getElementById('parts-price').textContent = `\u20AC ${data.split_source.items_cost.toFixed(2)}`;
             document.getElementById('shipping-price').textContent = `\u20AC ${data.split_source.shipping_cost.toFixed(2)}`;

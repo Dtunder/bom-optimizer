@@ -131,122 +131,148 @@ class BOMOptimizer:
         return results
 
     def find_best_combination(self, bom_items: List[Dict[str, Any]], part_details: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Implements a subset-power-set search to find the optimal combination of distributors.
-        This evaluates all combinations of distributors and picks the cheapest.
-        """
-        distributors = list(self.shipping_config.keys())
-        best_overall_result = None
-        min_total_cost = Decimal("Infinity")
+        """Minimize purchase costs INCLUDING shipping across per-line assignments.
 
-        # Iterate through all possible combinations (subsets) of distributors
-        for r in range(1, len(distributors) + 1):
-            for subset in itertools.combinations(distributors, r):
-                current_parts = []
-                distributors_used_cost = {d: Decimal("0.0") for d in subset}
-                feasible_subset = True
-                
-                for item in bom_items:
-                    mpn = item.get("mpn", "").strip()
-                    if not mpn: continue
-                    
-                    target_qty = max(1, int(item.get("quantity", 1)))
-                    details = part_details.get(mpn.upper(), {})
-                    
-                    best_dist_in_subset = None
-                    best_price_in_subset = Decimal("Infinity")
-                    best_qty = target_qty
-                    best_unit_price = Decimal("0.0")
-                    
-                    for dist in subset:
-                        dist_data = details.get("distributors", {}).get(dist, {})
-                        stock = dist_data.get("stock", 0)
-                        moq = max(1, dist_data.get("moq", 1))
-                        price_breaks = dist_data.get("price_breaks", {})
-                        currency = dist_data.get("currency", "EUR")
-                        
-                        order_qty = self._order_qty_with_price_break(target_qty, moq, price_breaks)
-                        if stock >= order_qty and price_breaks:
-                            unit_price = self._get_price_for_qty(price_breaks, order_qty, currency)
-                            if unit_price <= 0: continue
-                            
-                            total = unit_price * order_qty
-                            if total < best_price_in_subset:
-                                best_price_in_subset = total
-                                best_dist_in_subset = dist
-                                best_qty = order_qty
-                                best_unit_price = unit_price
-                    
-                    if best_dist_in_subset:
-                        current_parts.append({
-                            "mpn": mpn,
-                            "distributor": best_dist_in_subset,
-                            "qty": best_qty,
-                            "unit_price": float(best_unit_price),
-                            "total": float(best_price_in_subset)
-                        })
-                        distributors_used_cost[best_dist_in_subset] += best_price_in_subset
-                    else:
-                        # Check if this part is available anywhere in the entire catalog.
-                        available_anywhere = False
-                        for d in distributors:
-                            d_data = details.get("distributors", {}).get(d, {})
-                            d_moq = max(1, d_data.get("moq", 1))
-                            d_curr = d_data.get("currency", "EUR")
-                            d_breaks = d_data.get("price_breaks", {})
-                            d_order_qty = self._order_qty_with_price_break(target_qty, d_moq, d_breaks)
-                            if d_data.get("stock", 0) >= d_order_qty and d_breaks:
-                                if self._get_price_for_qty(d_breaks, d_order_qty, d_curr) > 0:
-                                    available_anywhere = True
-                                    break
-                        
-                        if available_anywhere:
-                            feasible_subset = False
-                            break
-                        else:
-                            current_parts.append({
-                                "mpn": mpn,
-                                "distributor": None,
-                                "qty": target_qty,
-                                "unit_price": 0.0,
-                                "total": 0.0,
-                                "unfulfilled": True
-                            })
-                
-                if feasible_subset:
-                    total_items_cost = Decimal("0.0")
-                    total_shipping_cost = Decimal("0.0")
-                    dist_summaries = {}
-                    
-                    # Only consider distributors that were actually assigned parts
-                    actually_used = {d: cost for d, cost in distributors_used_cost.items() if cost > 0}
-                    
-                    for dist, cost in actually_used.items():
-                        cfg = self.shipping_config[dist]
-                        shipping = Decimal("0.0") if cost >= cfg["threshold"] else cfg["rate"]
-                        total_items_cost += cost
-                        total_shipping_cost += shipping
-                        dist_summaries[dist] = {
-                            "items_cost": float(cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
-                            "shipping_cost": float(shipping.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
-                            "total": float((cost + shipping).quantize(Decimal("0.00"), rounding=ROUND_HALF_UP))
-                        }
-                    
-                    total_cost = total_items_cost + total_shipping_cost
-                    if total_cost < min_total_cost:
-                        min_total_cost = total_cost
-                        best_overall_result = {
-                            "parts": current_parts,
-                            "distributors": dist_summaries,
-                            "items_cost": float(total_items_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
-                            "shipping_cost": float(total_shipping_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
-                            "total_cost": float(total_cost.quantize(Decimal("0.00"), rounding=ROUND_HALF_UP)),
-                            "subset": subset
-                        }
-        
-        return best_overall_result or {"error": "No feasible combination found", "is_feasible": False}
+        For up to 50,000 feasible assignments, search exhaustively and certify
+        the optimum under the one-distributor-per-BOM-line model. For larger
+        search spaces, use bounded local search and disclose that the answer
+        is heuristic. No purchase orders are placed.
+        """
+        distributors = list(self.shipping_config)
+        lines = []
+        for item in bom_items:
+            mpn = item.get("mpn", "").strip()
+            if not mpn:
+                continue
+            target_qty = max(1, int(item.get("quantity", 1)))
+            details = part_details.get(mpn.upper(), {})
+            options = []
+            for dist in distributors:
+                dist_data = details.get("distributors", {}).get(dist, {})
+                breaks = dist_data.get("price_breaks", {})
+                qty = self._order_qty_with_price_break(
+                    target_qty, max(1, dist_data.get("moq", 1)), breaks
+                )
+                if dist_data.get("stock", 0) < qty or not breaks:
+                    continue
+                unit = self._get_price_for_qty(breaks, qty, dist_data.get("currency", "EUR"))
+                if unit > 0 and unit.is_finite():
+                    options.append((dist, qty, unit, unit * qty))
+            # Retain an explicit unfulfilled row if no supplier can supply it.
+            if not options:
+                options = [(None, target_qty, Decimal("0"), Decimal("0"))]
+            lines.append((mpn, options))
+
+        if not lines:
+            return {"error": "No BOM lines to optimize", "is_feasible": False}
+
+        search_space = 1
+        for _, options in lines:
+            search_space *= len(options)
+
+        evaluations = 0
+
+        def evaluate(assignment):
+            nonlocal evaluations
+            evaluations += 1
+            subtotals = {}
+            for option in assignment:
+                dist, _, _, cost = option
+                if dist is not None:
+                    subtotals[dist] = subtotals.get(dist, Decimal("0")) + cost
+            shipping = sum(
+                (Decimal("0") if subtotal >= self.shipping_config[dist]["threshold"]
+                 else self.shipping_config[dist]["rate"])
+                for dist, subtotal in subtotals.items()
+            )
+            return sum(subtotals.values(), Decimal("0")) + shipping
+
+        exact = search_space <= 50000
+        if exact:
+            best_cost = Decimal("Infinity")
+            best_assignment = None
+            for assignment in itertools.product(*(opts for _, opts in lines)):
+                cost = evaluate(assignment)
+                if cost < best_cost:
+                    best_cost = cost
+                    best_assignment = assignment
+        else:
+            # Deterministic bounded multi-start coordinate descent. Evaluate
+            # shipping-inclusive cost on EVERY candidate reassignment.
+            cheapest = [min(opts, key=lambda opt: opt[3]) for _, opts in lines]
+            starts = [cheapest]
+            for preferred in distributors:
+                starts.append([
+                    next((opt for opt in opts if opt[0] == preferred), cheapest[i])
+                    for i, (_, opts) in enumerate(lines)
+                ])
+            best_cost = Decimal("Infinity")
+            best_assignment = None
+            for seed in starts:
+                current = list(seed)
+                current_cost = evaluate(current)
+                for _ in range(8):
+                    improved = False
+                    for i, (_, options) in enumerate(lines):
+                        best_local = current[i]
+                        best_local_cost = current_cost
+                        for option in options:
+                            if option == current[i]:
+                                continue
+                            trial = list(current)
+                            trial[i] = option
+                            cost = evaluate(trial)
+                            if cost < best_local_cost:
+                                best_local, best_local_cost = option, cost
+                        if best_local != current[i]:
+                            current[i] = best_local
+                            current_cost = best_local_cost
+                            improved = True
+                    if not improved:
+                        break
+                if current_cost < best_cost:
+                    best_cost = current_cost
+                    best_assignment = tuple(current)
+
+        parts = []
+        subtotals = {}
+        for (mpn, _), (dist, qty, unit, cost) in zip(lines, best_assignment):
+            part = {
+                "mpn": mpn, "distributor": dist, "qty": qty,
+                "unit_price": float(unit), "total": float(cost)
+            }
+            if dist is None:
+                part["unfulfilled"] = True
+            else:
+                subtotals[dist] = subtotals.get(dist, Decimal("0")) + cost
+            parts.append(part)
+
+        summaries = {}
+        total_shipping = Decimal("0")
+        for dist, subtotal in subtotals.items():
+            cfg = self.shipping_config[dist]
+            shipping = Decimal("0") if subtotal >= cfg["threshold"] else cfg["rate"]
+            total_shipping += shipping
+            summaries[dist] = {
+                "items_cost": float(subtotal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+                "shipping_cost": float(shipping.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+                "total": float((subtotal + shipping).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            }
+        items_cost = sum(subtotals.values(), Decimal("0"))
+        return {
+            "parts": parts, "distributors": summaries,
+            "items_cost": float(items_cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+            "shipping_cost": float(total_shipping.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+            "total_cost": float((items_cost + total_shipping).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+            "subset": tuple(d for d in distributors if d in subtotals),
+            "is_feasible": all(p["distributor"] is not None for p in parts),
+            "is_optimal": exact and all(p["distributor"] is not None for p in parts),
+            "optimization_method": "exact_enumeration" if exact else "bounded_local_search",
+            "search_space": search_space,
+            "evaluated_assignments": evaluations
+        }
 
     def optimize_split_source(self, bom_items: List[Dict[str, Any]], part_details: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Calculates the overall cheapest split purchase across multiple distributors."""
-        # Use the power-set search for better results
+        """Finds a shipping-aware assignment; check is_optimal for certification."""
+        # Search per-line supplier assignments with shipping-inclusive costs.
         return self.find_best_combination(bom_items, part_details)

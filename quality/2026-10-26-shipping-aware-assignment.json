@@ -1,0 +1,67 @@
+{
+  "run_id": "portfolio-quality-2026-10-26-0651",
+  "checked_at": "2026-10-26",
+  "target_repo": "Dtunder/bom-optimizer",
+  "baseline_main_sha": "b5364e4277f74eb2a13a692f6138b5d91097cc6e",
+  "issue": "https://github.com/Dtunder/bom-optimizer/issues/2",
+  "candidates": [
+    {
+      "problem": "Split-source greedy assignment ignores shipping threshold; 92 EUR vs feasible 78 EUR",
+      "status": "FIXED_TESTED_ON_BRANCH",
+      "priority": "P1"
+    },
+    {
+      "problem": "Partial unavailable BOM incorrectly lacked explicit is_feasible=false",
+      "status": "FIXED_TESTED_ON_BRANCH",
+      "priority": "P1"
+    },
+    {
+      "problem": "Large assignment space had no bounded-work policy or optimality certification",
+      "status": "FIXED_TESTED_ON_BRANCH",
+      "priority": "P1"
+    },
+    {
+      "problem": "HTML and web UI labeled all answers optimal",
+      "status": "FIXED_TESTED_ON_BRANCH",
+      "priority": "P1"
+    },
+    {
+      "problem": "Stock can be double-counted across repeated MPN lines",
+      "status": "OPEN_UNVERIFIED",
+      "priority": "P2"
+    }
+  ],
+  "tests": {
+    "environment": "Windows PowerShell, Python 3.14.4",
+    "baseline_existing": "python -m unittest discover -s tests -p 'test*.py' -q => 16/16 PASS, exit 0",
+    "red": "python -m unittest discover -s tests -p test_shipping_assignment.py -v => 0/4 PASS, 1 FAIL, 3 ERROR, exit 1",
+    "green": "python -m unittest discover -s tests -p 'test*.py' -q => 24/24 PASS, exit 0",
+    "pytest": "python -m pytest -q => 24/24 PASS, exit 0",
+    "syntax": "python -m compileall -q src main.py server.py => exit 0",
+    "diff": "git diff --check => exit 0",
+    "independent_oracle": "30 deterministic four-line/two-supplier cases (16 assignments each) plus 100 deterministic five-line/three-supplier cases (243 assignments each), brute-force reference; verified via unittest",
+    "report_claims": "Exact/heuristic/partial HTML labels and browser-source heading checks PASS"
+  },
+  "delta": {
+    "counterexample_cost_eur_before": 92,
+    "counterexample_cost_eur_after": 78,
+    "avoided_overpayment_eur": 14,
+    "new_regression_cases": 8,
+    "regression_cases_before": "0/4",
+    "regression_cases_after": "4/4",
+    "tests_discovered_before": 16,
+    "tests_discovered_after": 24
+  },
+  "scope": "Exact one-distributor-per-line assignment enumeration up to 50,000 combinations; beyond that bounded local search with is_optimal=false. No live pricing or purchases.",
+  "privacy": "Synthetic fixtures only. No tokens, private project source, institute datasets, or personal data introduced.",
+  "deployment": {
+    "public_website_changed": false,
+    "github_main_merged": false,
+    "branch": "fix/shipping-aware-assignment-20261026"
+  },
+  "next": [
+    "Review/merge PR after CI and review",
+    "Test shared stock across duplicate BOM lines",
+    "Verify web UI labels in live browser"
+  ]
+}
