@@ -1,17 +1,18 @@
-import time
+import hashlib
 import json
-import random
 import os
+import random
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
-CACHE_FILE = Path(r"C:\Users\user\.gemini\antigravity-ide\scratch\bom_optimizer\cache\distributor_cache.json")
+DEFAULT_CACHE_FILE = Path(__file__).resolve().parents[1] / "cache" / "distributor_cache.json"
 
 class DistributorClient:
     def __init__(self, cache_enabled: bool = True):
         self.cache_enabled = cache_enabled
-        # Seed for reproducibility if needed, or at least initialization
-        random.seed(42) 
+        cache_override = os.environ.get("BOM_CACHE_FILE")
+        self.cache_file = Path(cache_override).expanduser() if cache_override else DEFAULT_CACHE_FILE
         self.cache = self._load_cache()
         # Mock database of electronic components with realistic mechatronics parameters
         self._mock_db = {
@@ -43,8 +44,8 @@ class DistributorClient:
                 "description": "IMU 3-Axis Gyro & 3-Axis Accel QFN-24",
                 "footprint": "QFN-24",
                 "manufacturer": "InvenSense",
-                "mouser": {"stock": 0, "price_breaks": {1: 5.40}, "moq": 1, "shipping_days": 3},
-                "digikey": {"stock": 0, "price_breaks": {1: 5.20}, "moq": 1, "shipping_days": 2},
+                "mouser": {"stock": 100, "price_breaks": {1: 9.00, 10: 8.50, 100: 7.50}, "moq": 1, "shipping_days": 3},
+                "digikey": {"stock": 100, "price_breaks": {1: 5.50, 10: 5.20, 100: 4.80}, "moq": 1, "shipping_days": 2},
                 "rs": {"stock": 0, "price_breaks": {1: 6.00}, "moq": 1, "shipping_days": 5}
             },
             "R0805-10K-1%": {
@@ -66,17 +67,17 @@ class DistributorClient:
         }
 
     def _load_cache(self) -> Dict[str, Any]:
-        if self.cache_enabled and CACHE_FILE.exists():
+        if self.cache_enabled and self.cache_file.exists():
             try:
-                return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+                return json.loads(self.cache_file.read_text(encoding="utf-8"))
             except Exception:
                 pass
         return {}
 
     def _save_cache(self):
         if self.cache_enabled:
-            CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            CACHE_FILE.write_text(json.dumps(self.cache, indent=4), encoding="utf-8")
+            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+            self.cache_file.write_text(json.dumps(self.cache, indent=4), encoding="utf-8")
 
     def query_part(self, mpn: str) -> Dict[str, Any]:
         """Queries pricing and stock info for a given MPN, checking cache first."""
@@ -105,11 +106,14 @@ class DistributorClient:
             result["footprint"] = "SMD"
             result["manufacturer"] = "Generic"
             
-            # Add random distributor data
+            # A stable per-MPN generator keeps fallback offers independent of
+            # query order and does not alter Python's process-wide RNG state.
+            seed = int.from_bytes(hashlib.sha256(clean_mpn.encode("utf-8")).digest(), "big")
+            rng = random.Random(seed)
             for dist in ["mouser", "digikey", "rs"]:
-                stock = random.choice([0, 100, 500, 10000])
+                stock = rng.choice([0, 100, 500, 10000])
                 if stock > 0:
-                    base_price = round(random.uniform(0.5, 25.0), 2)
+                    base_price = round(rng.uniform(0.5, 25.0), 2)
                     result["distributors"][dist] = {
                         "stock": stock,
                         "price_breaks": {
@@ -118,7 +122,7 @@ class DistributorClient:
                             100: round(base_price * 0.70, 2)
                         },
                         "moq": 1,
-                        "shipping_days": random.randint(1, 5)
+                        "shipping_days": rng.randint(1, 5)
                     }
                 else:
                     result["distributors"][dist] = {
